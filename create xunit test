@@ -1,0 +1,462 @@
+xunit sample
+using AutoMapper;
+using Insurance.DataAccess.Models;
+using Insurance.WebApi.Controllers;
+using Insurance.WebApi.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Moq;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Xunit;
+using System.Security.Claims;
+
+namespace Insurance.WebApi.Tests
+{
+    public class BenefitControllerTests
+    {
+        private readonly MapperConfiguration config;
+
+        private readonly Mock<IBenefitServices> mockBenefitServices;
+        private readonly BenefitsController _benefitController;
+        public BenefitControllerTests()
+        {
+
+            // Scan for all profiles in an assembly
+            // ... using instance approach:
+            config = new MapperConfiguration(cfg =>
+            {
+                cfg.AddMaps(typeof(BenefitsController).Assembly);
+            });
+
+            mockBenefitServices = new Mock<IBenefitServices>();
+            _benefitController = new BenefitsController(mockBenefitServices.Object, new Mapper(config))
+            {
+                ControllerContext = new ControllerContext
+                {
+                    HttpContext = new DefaultHttpContext
+                    {
+                        User = new ClaimsPrincipal(new ClaimsIdentity(new List<Claim>()
+                        {
+                            new Claim("EmployeeID", "1234"),
+                            new Claim("cargilluser", "a1234"),
+                            new Claim("name", "Firstname Lastname"),
+                            new Claim(ClaimTypes.Name, "Firstname_Lastname@cgl.com"),
+                            new Claim(ClaimTypes.Role, "Administrator"),
+                        }))
+                    }
+                }
+            };
+
+        }
+
+        public static IEnumerable<object[]> GetBenefitFromDataGenerator()
+        {
+            yield return new object[]
+            {
+            new Benefit {
+                BenefitCode = 1,
+                BenefitDescription = "benefit_1",
+                BenefitType = 'M',
+                CalculationType = 0,
+                LastDateModified = DateTime.Now.Date,
+                LastTimeModified = DateTime.Now.ToShortTimeString()
+            },
+            };
+        }
+
+        //GET
+        //Testing to Read all Benefits and whether the status code is 200
+        [Fact]
+        public async Task GetAsyncWhenCalledReturnsOk()
+        {
+            //Arrange
+
+            Mbenef entity = new Mbenef()
+            {
+                MbnCod = 1,
+                MbnDes = "benefit_1",
+                MbnTip = 'M',
+                MbnTcl = 0,
+                MbnUfec = DateTime.Now.Date,
+                MbnUser = "a1234",
+                MbnUhrs = DateTime.Now.ToShortTimeString()
+            };
+
+            List<Mbenef> entityList = new List<Mbenef>() { entity };
+
+
+            mockBenefitServices.Setup(p => p.ReadAsync())
+               .ReturnsAsync(entityList);
+            // Act
+            var response = await _benefitController.GetAsync().ConfigureAwait(false);
+            List<Benefit> actualBenefit = response.Value as List<Benefit>;
+
+
+            // Assert
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.NotNull(actualBenefit);
+        }
+
+
+        //GET BY BenefitCode
+        //Testing to Read Benefit with benefitCode and whether the status code is 200
+        [Theory]
+        [InlineData(1)]
+        public async Task GetByBenefitCodeknownBenefitCodePassedReturnsOk(short benefitCode)
+        {
+            // Arrange
+
+            Mbenef entity = new Mbenef()
+            {
+                MbnCod = 1,
+                MbnDes = "benefit_1",
+                MbnTip = 'M',
+                MbnTcl = 0,
+                MbnUfec = DateTime.Now.Date,
+                MbnUser = "user_1",
+                MbnUhrs = DateTime.Now.ToShortTimeString()
+            };
+            Benefit expectedBenefit = new Benefit()
+            {
+                BenefitCode = 1,
+                BenefitDescription = "benefit_1",
+                BenefitType = 'M',
+                CalculationType = 0,
+                LastDateModified = DateTime.Now.Date,
+                Username = "user_1",
+                LastTimeModified = DateTime.Now.ToShortTimeString()
+            };
+
+            mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>()))
+               .ReturnsAsync(entity);
+
+
+            // Act
+            var response = await _benefitController.GetAsync(benefitCode).ConfigureAwait(false);
+            Benefit actualBenefit = response.Value as Benefit;
+
+
+            // Assert
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.NotNull(actualBenefit);
+            Assert.Equal(expectedBenefit.BenefitCode, actualBenefit.BenefitCode);
+            Assert.Equal(expectedBenefit.BenefitDescription, actualBenefit.BenefitDescription);
+            Assert.Equal(expectedBenefit.BenefitType, actualBenefit.BenefitType);
+            Assert.Equal(expectedBenefit.CalculationType, actualBenefit.CalculationType);
+            Assert.Equal(expectedBenefit.LastDateModified, actualBenefit.LastDateModified);
+            Assert.Equal(expectedBenefit.Username, actualBenefit.Username);
+            Assert.Equal(expectedBenefit.LastTimeModified, actualBenefit.LastTimeModified);
+        }
+
+        //Testing to Read Benefit with benefitCode 
+        [Theory]
+        [InlineData(1)]
+        public async Task GetByBenefitCodeNoBenefitCodePassedReturnsBadRequest(short benefitCode)
+        {
+            //Arrange
+
+             mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>())).
+               Throws(new ArgumentException());
+
+            // Act
+            ObjectResult badrequestResponse = await _benefitController.GetAsync(benefitCode).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status400BadRequest, badrequestResponse.StatusCode);
+        }
+
+        //Testing Read Benefit with invald benefitCode
+        [Theory]
+        [InlineData(1)]
+        public async Task GetByBenefitCodeUnknownBenefitCodePassedReturnsNotFound(short benefitCode)
+        {
+            //Arrange
+
+            Mbenef entity2 = null;
+             mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>()))
+              .ReturnsAsync(entity2);
+
+            // Act
+            ObjectResult notfoundResponse = await _benefitController.GetAsync(benefitCode).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status404NotFound, notfoundResponse.StatusCode);
+        }
+
+        //POST
+        //Testing to create Benefit with valid benefit details
+        [Theory]
+        [MemberData(nameof(GetBenefitFromDataGenerator))]
+        public async Task PostValidObjectPassedReturnsOk(Benefit benefit)
+        {
+            // Arrange
+            Mbenef entity = new Mbenef()
+            {
+                MbnCod = benefit.BenefitCode,
+                MbnDes = benefit.BenefitDescription,
+                MbnTip = benefit.BenefitType,
+                MbnTcl = benefit.CalculationType,
+                MbnUfec = benefit.LastDateModified,
+                MbnUser = "a1234",
+                MbnUhrs = benefit.LastTimeModified
+            };
+            mockBenefitServices.Setup(p => p.CreateAsync(It.IsAny<Mbenef>()))
+              .ReturnsAsync(entity);
+
+
+            Benefit expectedBenefit = new Benefit()
+            {
+                BenefitCode = benefit.BenefitCode,
+                BenefitDescription = benefit.BenefitDescription,
+                BenefitType = benefit.BenefitType,
+                Username = benefit.Username,
+                CalculationType = benefit.CalculationType
+            };
+
+            // Act
+            var response = await _benefitController.PostAsync(expectedBenefit).ConfigureAwait(false);
+            Benefit actualBenefit = response.Value as Benefit;
+
+            // Assert
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.NotNull(actualBenefit);
+            Assert.Equal(expectedBenefit.BenefitCode, actualBenefit.BenefitCode);
+            Assert.Equal(expectedBenefit.BenefitDescription, actualBenefit.BenefitDescription);
+            Assert.Equal(expectedBenefit.BenefitType, actualBenefit.BenefitType);
+            Assert.Equal(expectedBenefit.Username, actualBenefit.Username);
+            Assert.Equal(expectedBenefit.CalculationType, actualBenefit.CalculationType);
+        }
+
+
+
+        //Testing to create Benefit with invalid  details
+        [Fact]
+        public async Task PostInvalidObjectPassedReturnsBadRequest()
+        {
+            // Arrange
+
+            mockBenefitServices.Setup(p => p.CreateAsync(It.IsAny<Mbenef>()))
+              .Throws(new ArgumentException());
+
+            Benefit benefit = new Benefit()
+            {
+                BenefitCode = 0,
+                BenefitDescription = "",
+                BenefitType = 'M',
+                CalculationType = 0
+            };
+
+            // Act
+            var badrequestResponse = await _benefitController.PostAsync(benefit).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status400BadRequest, badrequestResponse.StatusCode);
+        }
+
+        //Testing to create Benefit with no  details
+        [Fact]
+        public async Task PostNulldObjectPassedReturnsBadRequest()
+        {
+            // Arrange
+            Benefit benefit = null;
+
+            // Act
+            var badrequestResponse = await _benefitController.PostAsync(benefit).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status400BadRequest, badrequestResponse.StatusCode);
+        }
+
+
+
+        //PUT
+        //Testing to Update Benefit with valid benefitCode 
+        [Fact]
+        public async Task PutExistingBenefitCodePassedReturnsOk()
+        {
+            // Arrange
+            Mbenef entity = new Mbenef()
+            {
+                MbnCod = 1,
+                MbnDes = "benefit_1",
+                MbnTip = 'M',
+                MbnTcl = 0,
+                MbnUfec = DateTime.Now.Date,
+                MbnUser = "a1234",
+                MbnUhrs = DateTime.Now.ToShortTimeString()
+            };
+            mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>()))
+              .ReturnsAsync(entity);
+            mockBenefitServices.Setup(p => p.UpdateAsync(It.IsAny<Mbenef>()))
+              .ReturnsAsync(entity);
+
+
+            short benefitCode = 1;
+         
+            Benefit expectedBenefit = new Benefit()
+            {
+                BenefitCode = 1,
+                BenefitDescription = "benefit_1",
+                BenefitType = 'M',
+                CalculationType = 0,
+                Username = "a1234",
+            };
+
+
+            // Act
+            var response = await _benefitController.PutAsync(benefitCode, expectedBenefit).ConfigureAwait(false);
+            Benefit actualBenefit = response.Value as Benefit;
+
+            // Assert
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.NotNull(actualBenefit);
+            Assert.Equal(expectedBenefit.BenefitCode, actualBenefit.BenefitCode);
+            Assert.Equal(expectedBenefit.BenefitDescription, actualBenefit.BenefitDescription);
+            Assert.Equal(expectedBenefit.BenefitType, actualBenefit.BenefitType);
+            Assert.Equal(expectedBenefit.Username, actualBenefit.Username);
+            Assert.Equal(expectedBenefit.CalculationType, actualBenefit.CalculationType);
+        }
+
+        //Testing to Update Benefit with no benefitCode given
+        [Fact]
+        public async Task PutNoBenefitCodePassedReturnsBadRequest()
+        {
+            // Arrange
+            short benefitCode = 0;
+            Benefit benefit = new Benefit() { };
+
+            mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>())).
+               Throws(new ArgumentException());
+
+            // Act
+            var badResponse = await _benefitController.PutAsync(benefitCode, benefit).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status400BadRequest, badResponse.StatusCode);
+        }
+
+        //Testing to Update Benefit with invalid benefitCode 
+        [Fact]
+        public async Task PutNotExistingBenefitCodeCodePassedReturnsNotFound()
+        {
+            // Arrange
+
+            Mbenef entity2 = null;
+            mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>())).
+              ReturnsAsync(entity2);
+
+            short benefitCode = 10;
+            Benefit benefit = new Benefit() { };
+
+            // Act
+            var notfoundResponse = await _benefitController.PutAsync(benefitCode, benefit).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status404NotFound, notfoundResponse.StatusCode);
+        }
+
+        //Testing to Update Benefit with no benefitC given
+        [Fact]
+        public async Task PutNoBenefitPassedReturnsBadRequest()
+        {
+            // Arrange
+            short benefitCode = 0;
+            Benefit benefit = null;
+
+            mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>())).
+               Throws(new ArgumentException());
+
+            // Act
+            var badResponse = await _benefitController.PutAsync(benefitCode, benefit).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status400BadRequest, badResponse.StatusCode);
+        }
+
+        //DELETE
+        //Testing to Delete Benefit with valid benefitCode
+        [Theory]
+        [InlineData(1)]
+        public async Task DeleteExistingBenefitCodePassedReturnsOk(short benefitCode)
+        {
+            // Arrange
+            Mbenef entity = new Mbenef()
+            {
+                MbnCod = 1,
+                MbnDes = "benefit_1",
+                MbnTip = 'M',
+                MbnTcl = 0,
+                MbnUfec = DateTime.Now.Date,
+                MbnUser = "user_1",
+                MbnUhrs = DateTime.Now.ToShortTimeString()
+            };
+            Benefit expectedBenefit = new Benefit()
+            {
+                BenefitCode = 1,
+                BenefitDescription = "benefit_1",
+                BenefitType = 'M',
+                CalculationType = 0,
+                LastDateModified = DateTime.Now.Date,
+                Username = "user_1",
+                LastTimeModified = DateTime.Now.ToShortTimeString()
+            };
+            mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>()))
+               .ReturnsAsync(entity);
+             mockBenefitServices.Setup(p => p.DeleteAsync(It.IsAny<short>()))
+               .ReturnsAsync(entity);
+
+
+            // Act
+
+            var response = await _benefitController.DeleteAsync(benefitCode).ConfigureAwait(false);
+            Benefit actualBenefit = response.Value as Benefit;
+
+            // Assert
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.NotNull(actualBenefit);
+            Assert.Equal(expectedBenefit.BenefitCode, actualBenefit.BenefitCode);
+            Assert.Equal(expectedBenefit.BenefitDescription, actualBenefit.BenefitDescription);
+            Assert.Equal(expectedBenefit.BenefitType, actualBenefit.BenefitType);
+            Assert.Equal(expectedBenefit.CalculationType, actualBenefit.CalculationType);
+            Assert.Equal(expectedBenefit.LastDateModified, actualBenefit.LastDateModified);
+            Assert.Equal(expectedBenefit.Username, actualBenefit.Username);
+            Assert.Equal(expectedBenefit.LastTimeModified, actualBenefit.LastTimeModified);
+        }
+
+        //Testing to Delete Benefit with no benefitCode given
+        [Theory]
+        [InlineData(1)]
+        public async Task DeleteNoBenefitCodePassedReturnsBadRequest(short benefitCode)
+        {
+            // Arrange
+
+
+             mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>())).
+                Throws(new ArgumentException());
+
+            // Act
+            ObjectResult badrequestResponse = await _benefitController.DeleteAsync(benefitCode).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status400BadRequest, badrequestResponse.StatusCode);
+        }
+
+        //Testing to Delete Benefit with invalid benefitCode
+        [Theory]
+        [InlineData(1)]
+        public async Task DeleteNotExistingBenefitCodePassedReturnsNotFound(short benefitCode)
+        {
+            // Arrange
+            Mbenef entity2 = null;
+             mockBenefitServices.Setup(p => p.ReadAsync(It.IsAny<short>())).
+               ReturnsAsync(entity2);
+            // Act
+            ObjectResult notFoundResponse = await _benefitController.DeleteAsync(benefitCode).ConfigureAwait(false);
+
+            // Assert
+            Assert.Equal(StatusCodes.Status404NotFound, notFoundResponse.StatusCode);
+        }
+    }
+}
