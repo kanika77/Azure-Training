@@ -1,0 +1,208 @@
+using System;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Insurance.WebApi.Configurations;
+using Insurance.DataAccess.Context;
+using AutoMapper;
+using Microsoft.OpenApi.Models;
+using System.Reflection;
+using System.IO;
+using Microsoft.Net.Http.Headers;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Insurance.DataAccess.Models.SuccessFactorsModel;
+using RestSharp;
+using System.Collections.Generic;
+
+namespace Insurance.WebApi
+{
+    public class Startup
+    {
+        private const string CorsOriginName = "AllowOrigin";
+
+        public Startup(IConfiguration configuration)
+        {
+            Configuration = configuration;
+        }
+
+        public IConfiguration Configuration { get; }
+
+        // This method gets called by the runtime. Use this method to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            // Get Connection string from appsettings.{environment}.json
+            DbConfig dbConfig = Configuration.GetSection("DbConfig").Get<DbConfig>();
+
+            // Read variables from Env
+            string hostName = Environment.GetEnvironmentVariable("DB_HOST");
+            string dbPort = Environment.GetEnvironmentVariable("DB_PORT");
+            string dbName = Environment.GetEnvironmentVariable("DB_NAME");
+            string userName = Environment.GetEnvironmentVariable("DB_USERNAME");
+            string pwd = Environment.GetEnvironmentVariable("DB_PASSWORD");
+            string MetadataAddress = Configuration["WebApiSettings:MetadataAddress"].Replace("{INS_TENANTID}", Environment.GetEnvironmentVariable("INS_TENANTID"), StringComparison.Ordinal);
+           string Client_Id = Environment.GetEnvironmentVariable("INS_CLIENTID");
+            dbConfig.ConnectionString = dbConfig.ConnectionString
+                .Replace("{HostName}", hostName, StringComparison.Ordinal)
+                .Replace("{DbPort}", dbPort, StringComparison.Ordinal)
+                .Replace("{DbName}", dbName, StringComparison.Ordinal)
+                .Replace("{DbUserName}", userName, StringComparison.Ordinal)
+                .Replace("{DbPassword}", pwd, StringComparison.Ordinal);
+            // End Read
+            //  Add Authentication Services
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            }).AddJwtBearer(options =>
+            {
+                options.MetadataAddress = MetadataAddress;
+                options.Audience = Client_Id;
+            });
+
+            //Adding SuccessFactor Secret
+           SFSecret secret = new SFSecret
+            {
+                ClientId = Environment.GetEnvironmentVariable("SF_CLIENT_ID"),
+                ClientSecret = Environment.GetEnvironmentVariable("SF_CLIENT_SECRET"),
+                Scope = Environment.GetEnvironmentVariable("SF_SCOPE"),
+            };
+
+           
+            RestClient sfClient = new RestClient(Configuration["SuccessFactors:Url"]);
+            RestClient sfTokenClient = new RestClient(Configuration["SuccessFactors:TokenUrl"]);
+
+            Dictionary<string, RestClient> clients = new Dictionary<string, RestClient>
+            {             
+                { "SuccessFactors", sfClient },
+                { "SuccessFactorsToken", sfTokenClient },
+            };
+            // DBContext DI
+            services.AddDbContext<SegurosContext>(options => options.UseNpgsql(dbConfig.ConnectionString));
+
+            // Services DI Start
+            services.AddSingleton(clients);
+            services.AddSingleton(secret);
+            services.AddTransient<ISuccessFactorService, SuccessFactorService>();
+            services.AddTransient<IBenefitServices, BenefitServices>();
+            services.AddTransient<IFamilyGroupService, FamilyGroupService> ();          
+            services.AddTransient<ICompensationServices, CompensationServices>();
+            services.AddTransient<IEmployeeServices, EmployeeServices>();
+            services.AddTransient<IDiagnosticServices, DiagnosticServices>();
+            services.AddTransient<IAssignmentofCategorytoPlanService, AssignmentofCategorytoPlanService>();
+            services.AddTransient<IMedicalExpenseService,MedicalExpenseService>();
+            services.AddTransient<IDentalExpenseService, DentalExpenseService>();
+            services.AddTransient<IHospita1DetailsService, Hospita1DetailsService>();
+            services.AddTransient<IHospitalService, HospitalService>();
+      
+            services.AddTransient<IManagementsServices, ManagementsService>();
+      
+            services.AddTransient<ISapHdService, SapHdService>();
+        ;
+            // Services DI End
+
+
+            // Automapper configuration scanning
+            services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+
+            // Adding cors
+            services.AddCors(options =>
+            {
+                options.AddPolicy(CorsOriginName,
+                    builder => builder.AllowAnyOrigin()
+                    .AllowAnyMethod()
+                    .AllowAnyHeader());
+            });
+
+            services.AddMvc(
+               options =>
+               {
+                   options.FormatterMappings.SetMediaTypeMappingForFormat
+                       ("xml", MediaTypeHeaderValue.Parse("application/xml"));
+                   options.FormatterMappings.SetMediaTypeMappingForFormat
+                       ("config", MediaTypeHeaderValue.Parse("application/xml"));
+                   options.FormatterMappings.SetMediaTypeMappingForFormat
+                       ("js", MediaTypeHeaderValue.Parse("application/json"));
+               }
+               ).AddXmlSerializerFormatters();
+
+
+            services.AddSwaggerGen(setupAction =>
+            {
+                setupAction.SwaggerDoc("v1", new OpenApiInfo { Title = "Insurance Administration API", Version = "v1" });
+
+
+                setupAction.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+                {
+                    Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+                    Name = "Authorization",
+                    In = ParameterLocation.Header,
+                    Type = SecuritySchemeType.ApiKey
+                });
+                //setupAction.AddSecurityDefinition("basicAuth", new OpenApiSecurityScheme()
+                //{
+                //    Type = SecuritySchemeType.Http,
+                //    Scheme = "basic",
+                //    Description = "Input your username and password to access this API",
+                //    In = ParameterLocation.Header,
+                //});
+
+                // Set the comments path for the Swagger JSON and UI.
+                var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                setupAction.IncludeXmlComments(xmlPath);
+
+                //setupAction.AddSecurityRequirement(new OpenApiSecurityRequirement
+                //{
+                //    {
+                //        new OpenApiSecurityScheme
+                //        {
+                //            Reference = new OpenApiReference {
+                //                Type = ReferenceType.SecurityScheme,
+                //                Id = "basicAuth" }
+                //        }, new List<string>() }
+                //});
+            });
+            
+           
+
+    services.AddControllers();
+
+        }
+
+        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+            app.UseAuthentication();
+
+            // Enable middleware to serve generated Swagger as a JSON endpoint.
+            app.UseSwagger();
+
+            // Enable middleware to serve swagger-ui (HTML, JS, CSS, etc.),
+            // specifying the Swagger JSON endpoint.
+            app.UseSwaggerUI(c =>
+            {
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "Insurance API V1");
+            });
+
+            app.UseHttpsRedirection();
+
+            app.UseRouting();
+
+            app.UseCors(CorsOriginName);
+
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+            });
+        }
+    }
+}
